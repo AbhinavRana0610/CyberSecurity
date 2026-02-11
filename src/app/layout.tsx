@@ -7,6 +7,9 @@ import { AlertBanner } from "@/components/AlertBanner";
 
 const inter = Inter({ subsets: ["latin"] });
 
+
+export const dynamic = "force-dynamic";
+
 export const metadata: Metadata = {
   title: "CyberSentry India – National Cyber Fraud Awareness Portal",
   description: "The official national portal for cyber fraud awareness and prevention in India.",
