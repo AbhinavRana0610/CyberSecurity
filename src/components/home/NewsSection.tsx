@@ -8,7 +8,7 @@ import { ExternalLink, Calendar, Newspaper, Loader2 } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
 
 interface NewsArticle {
-    id: number;
+    id: string;
     title: string;
     category: string;
     summary: string;
@@ -59,8 +59,8 @@ export function NewsSection() {
         });
     };
 
-    const formatNewsId = (id: number) => {
-        return `CS-NEWS-${id.toString().padStart(3, '0')}`;
+    const formatNewsId = (id: string) => {
+        return `CS-NEWS-${id.slice(0, 4).toUpperCase()}`;
     };
 
     return (
@@ -88,59 +88,61 @@ export function NewsSection() {
                 ) : (
                     <div className="columns-1 md:columns-2 lg:columns-4 gap-6 space-y-6">
                         {articles.length > 0 ? (
-                            articles.map((article) => (
-                                <Link
-                                    key={article.id}
-                                    href={article.source_url || "#"}
-                                    target={article.source_url ? "_blank" : "_self"}
-                                    className="block group focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-700 rounded-lg break-inside-avoid mb-6"
-                                >
-                                    <Card className="h-full hover:shadow-md transition-shadow duration-200 border-slate-200 bg-white overflow-hidden flex flex-col">
-                                        <div className="h-32 w-full bg-slate-100 relative border-b border-slate-100">
-                                            <div className="absolute inset-0 flex items-center justify-center overflow-hidden">
-                                                {article.image_url ? (
-                                                    <img
-                                                        src={article.image_url}
-                                                        alt={article.title}
-                                                        className="h-full w-full object-cover"
-                                                    />
-                                                ) : (
-                                                    <div className="text-slate-300">
-                                                        <Newspaper className="h-12 w-12 opacity-20" />
-                                                    </div>
-                                                )}
+                            articles.map((article) => {
+                                console.log("CARD ID:", article.id);
+                                return (
+                                    <Link
+                                        key={article.id}
+                                        href={`/news/${article.id}`}
+                                        className="block group focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-700 rounded-lg break-inside-avoid mb-6"
+                                    >
+                                        <Card className="h-full hover:shadow-md transition-shadow duration-200 border-slate-200 bg-white overflow-hidden flex flex-col">
+                                            <div className="h-32 w-full bg-slate-100 relative border-b border-slate-100">
+                                                <div className="absolute inset-0 flex items-center justify-center overflow-hidden">
+                                                    {article.image_url ? (
+                                                        <img
+                                                            src={article.image_url}
+                                                            alt={article.title}
+                                                            className="h-full w-full object-cover"
+                                                        />
+                                                    ) : (
+                                                        <div className="text-slate-300">
+                                                            <Newspaper className="h-12 w-12 opacity-20" />
+                                                        </div>
+                                                    )}
+                                                </div>
                                             </div>
-                                        </div>
-                                        <CardHeader className="pb-3 space-y-2 pt-4">
-                                            <div className="flex justify-between items-start">
-                                                <Badge variant="secondary" className="bg-blue-50 text-blue-700 hover:bg-blue-100 font-normal">
-                                                    {article.category}
-                                                </Badge>
-                                            </div>
-                                            <CardTitle className="text-base font-semibold text-slate-900 leading-snug group-hover:text-blue-800 transition-colors line-clamp-2">
-                                                {article.title}
-                                            </CardTitle>
-                                        </CardHeader>
-                                        <CardContent className="pb-3 text-sm text-slate-600">
-                                            <p className="line-clamp-3">{article.summary}</p>
-                                        </CardContent>
-                                        <CardFooter className="pt-0 text-xs text-slate-500 flex justify-between items-center border-t border-slate-100 mt-auto p-4 bg-slate-50/50 rounded-b-lg">
-                                            <span className="font-medium text-slate-700 truncate max-w-[100px]" title={article.source_name}>
-                                                {article.source_name}
-                                            </span>
-                                            <span className="flex items-center gap-3">
-                                                <span className="bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded text-[10px] font-mono border border-slate-200">
-                                                    {formatNewsId(article.id)}
+                                            <CardHeader className="pb-3 space-y-2 pt-4">
+                                                <div className="flex justify-between items-start">
+                                                    <Badge variant="secondary" className="bg-blue-50 text-blue-700 hover:bg-blue-100 font-normal">
+                                                        {article.category}
+                                                    </Badge>
+                                                </div>
+                                                <CardTitle className="text-base font-semibold text-slate-900 leading-snug group-hover:text-blue-800 transition-colors line-clamp-2">
+                                                    {article.title}
+                                                </CardTitle>
+                                            </CardHeader>
+                                            <CardContent className="pb-3 text-sm text-slate-600">
+                                                <p className="line-clamp-3">{article.summary}</p>
+                                            </CardContent>
+                                            <CardFooter className="pt-0 text-xs text-slate-500 flex justify-between items-center border-t border-slate-100 mt-auto p-4 bg-slate-50/50 rounded-b-lg">
+                                                <span className="font-medium text-slate-700 truncate max-w-[100px]" title={article.source_name}>
+                                                    {article.source_name}
                                                 </span>
-                                                <span className="flex items-center whitespace-nowrap">
-                                                    <Calendar className="mr-1 h-3 w-3" />
-                                                    {formatDate(article.created_at)}
+                                                <span className="flex items-center gap-3">
+                                                    <span className="bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded text-[10px] font-mono border border-slate-200">
+                                                        {formatNewsId(article.id)}
+                                                    </span>
+                                                    <span className="flex items-center whitespace-nowrap">
+                                                        <Calendar className="mr-1 h-3 w-3" />
+                                                        {formatDate(article.created_at)}
+                                                    </span>
                                                 </span>
-                                            </span>
-                                        </CardFooter>
-                                    </Card>
-                                </Link>
-                            ))
+                                            </CardFooter>
+                                        </Card>
+                                    </Link>
+                                );
+                            })
                         ) : (
                             <div className="col-span-full text-center py-12 text-slate-500">
                                 No news articles available at the moment.
