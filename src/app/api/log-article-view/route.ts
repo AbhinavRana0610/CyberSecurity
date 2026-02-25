@@ -1,11 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { supabase } from '@/lib/supabaseClient';
-import { createHash } from 'crypto';
+import { createClient } from '@supabase/supabase-js';
 
-// Helper function to hash IP
-function hashIp(ip: string): string {
-    return createHash('sha256').update(ip).digest('hex');
-}
+// Keep this logic server-side only
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+const supabase = createClient(supabaseUrl, supabaseKey);
 
 export async function POST(request: NextRequest) {
     try {
@@ -13,63 +12,98 @@ export async function POST(request: NextRequest) {
         const { article_id } = body;
 
         if (!article_id) {
-            return NextResponse.json({ error: 'Missing article_id' }, { status: 400 });
+            return NextResponse.json({ success: false, error: 'Missing article_id' }, { status: 400 });
         }
 
-        // 1. Read IP from headers or request
-        // x-forwarded-for can be a comma-separated list, take the first one
-        const forwardedFor = request.headers.get('x-forwarded-for');
+        // 1. Capture raw IP
+        const forwarded = request.headers.get('x-forwarded-for');
         const realIp = request.headers.get('x-real-ip');
-        const rawIp = forwardedFor ? forwardedFor.split(',')[0].trim() : (realIp || (request as any).ip || 'unknown');
 
-        // 2. Immediately hash the IP
-        const ip_hash = hashIp(rawIp);
+        let ip_address = 'Unknown';
+        if (forwarded) {
+            ip_address = forwarded.split(',')[0].trim();
+        } else if (realIp) {
+            ip_address = realIp;
+        }
 
-        // 3. Extract country and region (Vercel headers)
-        const country = request.headers.get('x-vercel-ip-country') || 'Unknown';
-        const region = request.headers.get('x-vercel-ip-country-region') || 'Unknown';
+        // 2. Fetch geo data using a free IP API
+        let country = 'Unknown';
+        let region = 'Unknown';
+        let city = 'Unknown';
 
-        // 4. Derive device_type from user agent
+        if (ip_address === '::1' || ip_address === '127.0.0.1' || ip_address === 'Unknown') {
+            country = 'Localhost';
+            region = 'Localhost';
+            city = 'Localhost';
+        } else {
+            try {
+                const geoRes = await fetch(`https://ipapi.co/${ip_address}/json/`);
+                if (geoRes.ok) {
+                    const geoData = await geoRes.json();
+                    if (!geoData.error) {
+                        country = geoData.country_code || 'Unknown';
+                        region = geoData.region_code || 'Unknown';
+                        city = geoData.city || 'Unknown';
+                    }
+                }
+            } catch (err) {
+                console.error('Geo API fetch error:', err);
+                // Keep defaults if geo API fails
+            }
+        }
+
+        // 3. Keep device type detection from user-agent
         const userAgent = request.headers.get('user-agent') || '';
         let device_type = 'desktop';
 
-        if (/tablet|ipad/i.test(userAgent)) {
-            device_type = 'tablet';
-        } else if (/mobile/i.test(userAgent)) {
+        if (userAgent.includes('Mobile')) {
             device_type = 'mobile';
+        } else if (userAgent.includes('Tablet')) {
+            device_type = 'tablet';
+        } else {
+            device_type = 'desktop';
         }
 
-        // 5. Insert into Supabase
-        const { error } = await supabase
+        // 4. Prevent duplicate views
+        const { data: existingViews, error: checkError } = await supabase
             .from('article_views')
-            .upsert(
-                {
-                    article_id,
-                    ip_hash,
-                    country,
-                    region,
-                    device_type,
-                    // created_at is usually handled by default value in DB, but good to have if manual
-                },
-                {
-                    onConflict: 'article_id,ip_hash',
-                    ignoreDuplicates: true,
-                }
-            );
+            .select('article_id')
+            .eq('article_id', article_id)
+            .eq('ip_address', ip_address)
+            .limit(1);
 
-        if (error) {
-            console.error('Error logging article view:', error);
-            // Non-blocking error - we don't return 500 to client to avoid disrupting UX
-            // But we log it on server
-            return NextResponse.json({ success: false, error: 'Tracking failed' }, { status: 200 });
+        if (checkError) {
+            console.error('Supabase check error:', checkError);
+            return NextResponse.json({ success: false, error: checkError.message });
+        }
+
+        if (existingViews && existingViews.length > 0) {
+            return NextResponse.json({ success: true, skipped: true });
+        }
+
+        // 5. Insert into Supabase table article_views
+        const { error: insertError } = await supabase
+            .from('article_views')
+            .insert({
+                article_id,
+                ip_address,
+                country,
+                region,
+                city,
+                device_type
+            });
+
+        if (insertError) {
+            console.error('Error logging article view:', insertError);
+            return NextResponse.json({ success: false, error: insertError.message });
         }
 
         return NextResponse.json({ success: true });
     } catch (error) {
         console.error('Error in log-article-view route:', error);
-        // Return 200 even on error to not break the page?
-        // User said: "Add basic error handling but do not block page rendering if tracking fails."
-        // Since this is an async fetch, returning 500 won't block render, but 200 is safer for clients that might check ok.
-        return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+        return NextResponse.json(
+            { success: false, error: error instanceof Error ? error.message : 'Internal Server Error' },
+            { status: 500 }
+        );
     }
 }
