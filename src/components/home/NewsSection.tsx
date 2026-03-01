@@ -5,7 +5,8 @@ import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ExternalLink, Calendar, Newspaper, Loader2 } from "lucide-react";
-import { supabase } from "@/lib/supabaseClient";
+import { collection, getDocs, query, where, orderBy, limit, Timestamp } from "firebase/firestore";
+import { db } from "@/lib/firebase";
 
 interface NewsArticle {
     id: string;
@@ -27,20 +28,27 @@ export function NewsSection() {
     useEffect(() => {
         const fetchNews = async () => {
             try {
-                const { data, error } = await supabase
-                    .from('news_articles')
-                    .select('*')
-                    .eq('status', 'published') // Only show published articles
-                    .order('created_at', { ascending: false })
-                    .limit(6);
+                const q = query(
+                    collection(db, "news_articles"),
+                    where("status", "==", "published"),
+                    orderBy("created_at", "desc"),
+                    limit(6)
+                );
 
-                if (error) {
-                    throw error;
-                }
+                const snapshot = await getDocs(q);
 
-                if (data) {
-                    setArticles(data);
-                }
+                const data = snapshot.docs.map(doc => {
+                    const docData = doc.data();
+                    return {
+                        id: doc.id,
+                        ...docData,
+                        created_at: docData.created_at instanceof Timestamp
+                            ? docData.created_at.toDate().toISOString()
+                            : docData.created_at || "",
+                    } as NewsArticle;
+                });
+
+                setArticles(data);
             } catch (error) {
                 console.error("Error fetching news:", error);
             } finally {

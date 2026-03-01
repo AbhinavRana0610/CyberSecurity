@@ -12,7 +12,6 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
-import { supabase } from "@/lib/supabaseClient";
 import { Loader2 } from "lucide-react";
 
 export default function PublishNewsPage() {
@@ -47,37 +46,6 @@ export default function PublishNewsPage() {
         }
     };
 
-    const uploadImage = async (file: File): Promise<string | null> => {
-        try {
-            console.log("Starting image upload for:", file.name);
-            const fileExt = file.name.split('.').pop();
-            const fileName = `${Math.random().toString(36).substring(2)}.${fileExt}`;
-            const filePath = `news-articles/${fileName}`;
-
-            const { data, error: uploadError } = await supabase.storage
-                .from('news-images')
-                .upload(filePath, file);
-
-            if (uploadError) {
-                console.error('Error uploading image to Supabase Storage:', uploadError);
-                // We return null so the article can still be published without the image
-                return null;
-            }
-
-            console.log("Image uploaded successfully. Path:", data?.path);
-
-            const { data: publicUrlData } = supabase.storage
-                .from('news-images')
-                .getPublicUrl(filePath);
-
-            console.log("Generated Public URL:", publicUrlData.publicUrl);
-            return publicUrlData.publicUrl;
-        } catch (error) {
-            console.error('Unexpected error in uploadImage:', error);
-            return null;
-        }
-    };
-
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setLoading(true);
@@ -88,47 +56,53 @@ export default function PublishNewsPage() {
         console.log("Current Form Data:", formData);
 
         try {
-            let imageUrl = null;
+            let imageUrl: string | null = null;
 
-            // 2. Handle Image Upload
+            // Note: Image file upload is not currently supported (Supabase Storage removed).
+            // If an image URL is needed, it can be provided via other means in the future.
             if (imageFile) {
-                console.log("Image file detected, attempting upload...");
-                imageUrl = await uploadImage(imageFile);
-                console.log("Final Image URL to be used:", imageUrl);
-            } else {
-                console.log("No image file selected, skipping upload.");
+                console.log("Image file selected but upload is not currently supported. Skipping.");
             }
 
-            // 3. Construct Payload - ENSURING SNAKE_CASE KEYS CHECK
+            // 3. Construct Payload with snake_case keys for the API
             const insertPayload = {
                 title: formData.title,
                 category: formData.category,
                 platform: formData.platform || null,
                 summary: formData.summary,
                 content: formData.content,
-                source_name: formData.sourceName, // snake_case
-                source_url: formData.sourceUrl || null, // snake_case
-                author_name: formData.authorName, // snake_case
-                image_url: imageUrl,             // snake_case
-                status: 'published',
+                source_name: formData.sourceName,
+                source_url: formData.sourceUrl || null,
+                author_name: formData.authorName,
+                image_url: imageUrl,
             };
 
-            console.log("Submitting payload to Supabase:", insertPayload);
+            console.log("Submitting payload to /api/publish-news:", insertPayload);
 
-            // 4. Perform Supabase Insert
-            const { data, error: insertError, status, statusText } = await supabase
-                .from('news_articles')
-                .insert([insertPayload])
-                .select();
+            // 4. Call the API route (relative URL — NOT absolute)
+            const response = await fetch('/api/publish-news', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(insertPayload),
+            });
 
-            console.log("Supabase Insert Response:", { status, statusText, data, error: insertError });
+            console.log("API Response Status:", response.status);
 
-            if (insertError) {
-                console.error("Supabase Insert Error detected:", insertError);
-                throw new Error(`Database Error: ${insertError.message} (Code: ${insertError.code})`);
+            if (!response.ok) {
+                const errorText = await response.text();
+                console.error("API Error Response Body:", errorText);
+                let errorMessage = `Server error (${response.status})`;
+                try {
+                    const errorJson = JSON.parse(errorText);
+                    errorMessage = errorJson.error || errorMessage;
+                } catch {
+                    // errorText was not JSON, use status-based message
+                }
+                throw new Error(errorMessage);
             }
 
-            console.log("Article successfully saved to database with ID:", data?.[0]?.id);
+            const result = await response.json();
+            console.log("Article successfully saved to database:", result.data);
 
             setSubmitted(true);
             window.scrollTo({ top: 0, behavior: 'smooth' });

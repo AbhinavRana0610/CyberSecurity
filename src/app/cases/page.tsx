@@ -19,11 +19,12 @@ import {
     Loader2
 } from "lucide-react";
 import Link from "next/link";
-import { supabase } from "@/lib/supabaseClient";
+import { collection, query, where, orderBy, onSnapshot, Timestamp } from "firebase/firestore";
+import { db } from "@/lib/firebase";
 
 // Define the shape of our data
 interface FraudReport {
-    id: string; // or number, depending on DB
+    id: string; // Firestore document ID
     title: string;
     category: string;
     platform: string;
@@ -39,52 +40,42 @@ export default function CasesPage() {
     const [error, setError] = useState<string | null>(null);
 
     useEffect(() => {
-        const fetchCases = async () => {
-            try {
-                setIsLoading(true);
-                const { data, error } = await supabase
-                    .from('fraud_reports')
-                    .select('*')
-                    .eq('is_public', true)
-                    .order('created_at', { ascending: false });
+        try {
+            const q = query(
+                collection(db, "fraud_reports"),
+                where("is_public", "==", true),
+                orderBy("created_at", "desc")
+            );
 
-                if (error) {
-                    throw error;
-                }
+            // Real-time listener using Firestore onSnapshot
+            const unsubscribe = onSnapshot(q, (snapshot) => {
+                const data = snapshot.docs.map(doc => {
+                    const docData = doc.data();
+                    return {
+                        id: doc.id,
+                        ...docData,
+                        created_at: docData.created_at instanceof Timestamp
+                            ? docData.created_at.toDate().toISOString()
+                            : docData.created_at || "",
+                    } as FraudReport;
+                });
 
-                setCases(data || []);
-            } catch (err: any) {
+                setCases(data);
+                setIsLoading(false);
+            }, (err) => {
                 console.error("Error fetching cases:", err);
                 setError("Failed to load cases. Please try again later.");
-            } finally {
                 setIsLoading(false);
-            }
-        };
+            });
 
-        fetchCases();
-
-        // Real-time subscription
-        const channel = supabase
-            .channel('realtime-fraud-reports')
-            .on(
-                'postgres_changes',
-                {
-                    event: 'INSERT',
-                    schema: 'public',
-                    table: 'fraud_reports',
-                    filter: 'is_public=eq.true'
-                },
-                (payload) => {
-                    console.log('New public fraud report received:', payload);
-                    const newCase = payload.new as FraudReport;
-                    setCases((prevCases) => [newCase, ...prevCases]);
-                }
-            )
-            .subscribe();
-
-        return () => {
-            supabase.removeChannel(channel);
-        };
+            return () => {
+                unsubscribe();
+            };
+        } catch (err: any) {
+            console.error("Error setting up cases listener:", err);
+            setError("Failed to load cases. Please try again later.");
+            setIsLoading(false);
+        }
     }, []);
 
     // Helper functions for UI mapping

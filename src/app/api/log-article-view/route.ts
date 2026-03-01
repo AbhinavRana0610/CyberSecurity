@@ -1,10 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { initializeApp, getApps, getApp } from 'firebase/app';
+import { getFirestore, collection, addDoc, getDocs, query, where, limit, serverTimestamp } from 'firebase/firestore';
 
-// Keep this logic server-side only
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
-const supabase = createClient(supabaseUrl, supabaseKey);
+// Server-side Firebase client
+const firebaseConfig = {
+    apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY || '',
+    authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN || '',
+    projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || '',
+    storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || '',
+    messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID || '',
+    appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID || '',
+};
+
+const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
+const db = getFirestore(app);
 
 export async function POST(request: NextRequest) {
     try {
@@ -26,7 +35,7 @@ export async function POST(request: NextRequest) {
             ip_address = realIp;
         }
 
-        // 2. Fetch geo data using a free IP API
+        // 2. Fetch geo data using a free IP API (with 3s timeout)
         let country = 'Unknown';
         let region = 'Unknown';
         let city = 'Unknown';
@@ -37,18 +46,20 @@ export async function POST(request: NextRequest) {
             city = 'Localhost';
         } else {
             try {
-                const geoRes = await fetch(`https://ipapi.co/${ip_address}/json/`);
+                const geoRes = await fetch(`https://ipapi.co/${ip_address}/json/`, {
+                    signal: AbortSignal.timeout(3000),
+                });
                 if (geoRes.ok) {
                     const geoData = await geoRes.json();
                     if (!geoData.error) {
-                        country = geoData.country_code || 'Unknown';
-                        region = geoData.region_code || 'Unknown';
                         city = geoData.city || 'Unknown';
+                        region = geoData.region || 'Unknown';
+                        country = geoData.country_name || 'Unknown';
                     }
                 }
             } catch (err) {
-                console.error('Geo API fetch error:', err);
-                // Keep defaults if geo API fails
+                console.error('Geo API fetch error (will store view with Unknown location):', err);
+                // Keep defaults — do NOT crash, still store the view
             }
         }
 
@@ -64,39 +75,35 @@ export async function POST(request: NextRequest) {
             device_type = 'desktop';
         }
 
-        // 4. Prevent duplicate views
-        const { data: existingViews, error: checkError } = await supabase
-            .from('article_views')
-            .select('article_id')
-            .eq('article_id', article_id)
-            .eq('ip_address', ip_address)
-            .limit(1);
+        // 4. Prevent duplicate views — query Firestore for existing view
+        try {
+            const q = query(
+                collection(db, 'article_views'),
+                where('article_id', '==', article_id),
+                where('ip_address', '==', ip_address),
+                limit(1)
+            );
 
-        if (checkError) {
-            console.error('Supabase check error:', checkError);
-            return NextResponse.json({ success: false, error: checkError.message });
+            const existingSnapshot = await getDocs(q);
+
+            if (!existingSnapshot.empty) {
+                return NextResponse.json({ success: true, skipped: true });
+            }
+        } catch (checkError) {
+            console.error('Firestore check error:', checkError);
+            // Continue to insert even if check fails
         }
 
-        if (existingViews && existingViews.length > 0) {
-            return NextResponse.json({ success: true, skipped: true });
-        }
-
-        // 5. Insert into Supabase table article_views
-        const { error: insertError } = await supabase
-            .from('article_views')
-            .insert({
-                article_id,
-                ip_address,
-                country,
-                region,
-                city,
-                device_type
-            });
-
-        if (insertError) {
-            console.error('Error logging article view:', insertError);
-            return NextResponse.json({ success: false, error: insertError.message });
-        }
+        // 5. Insert into Firestore collection article_views
+        await addDoc(collection(db, 'article_views'), {
+            article_id,
+            ip_address,
+            country,
+            region,
+            city,
+            device_type,
+            created_at: serverTimestamp(),
+        });
 
         return NextResponse.json({ success: true });
     } catch (error) {

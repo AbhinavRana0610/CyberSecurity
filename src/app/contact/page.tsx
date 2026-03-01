@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { supabase } from "@/lib/supabaseClient";
+import { collection, addDoc, serverTimestamp } from "firebase/firestore";
+import { db } from "@/lib/firebase";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -31,17 +32,12 @@ export default function ContactPage() {
                 throw new Error("All fields are required.");
             }
 
-            const { error: supabaseError } = await supabase
-                .from('contact_messages')
-                .insert([
-                    {
-                        name: formData.name,
-                        email: formData.email,
-                        message: formData.message,
-                    }
-                ]);
-
-            if (supabaseError) throw supabaseError;
+            await addDoc(collection(db, "contact_messages"), {
+                name: formData.name,
+                email: formData.email,
+                message: formData.message,
+                created_at: serverTimestamp(),
+            });
 
             setSuccess(true);
             setFormData({ name: "", email: "", message: "" });
@@ -51,7 +47,6 @@ export default function ContactPage() {
             if (err instanceof Error) {
                 errorMessage = err.message;
             } else if (typeof err === "object" && err !== null && "message" in err) {
-                // Handle Supabase error object structure if it's not an Error instance sometimes
                 errorMessage = (err as { message: string }).message;
             }
             setError(errorMessage);
